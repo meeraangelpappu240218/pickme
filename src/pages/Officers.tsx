@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { Search, Filter, Download, Plus, Edit2, Trash2, UserCheck, UserX, X, Save, Mail, Phone, Building, Shield, User, Calendar } from 'lucide-react';
 import { StatusBadge } from '../components/UI/StatusBadge';
-import { useData } from '../hooks/useData';
+import { useRealData } from '../hooks/useRealData';
 import { useTheme } from '../contexts/ThemeContext';
-import { Officer } from '../types';
 import toast from 'react-hot-toast';
 
 interface AddOfficerFormData {
@@ -19,7 +18,7 @@ interface AddOfficerFormData {
 }
 
 export const Officers: React.FC = () => {
-  const { officers, setOfficers, isLoading } = useData();
+  const { officers, isLoading, createOfficer, deleteOfficer, updateOfficerStatus } = useRealData();
   const { isDark } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -41,7 +40,7 @@ export const Officers: React.FC = () => {
   const filteredOfficers = officers.filter(officer => {
     const matchesSearch = officer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          officer.mobile.includes(searchTerm) ||
-                         officer.telegram_id.toLowerCase().includes(searchTerm.toLowerCase());
+                         (officer.telegram_id && officer.telegram_id.toLowerCase().includes(searchTerm.toLowerCase()));
     
     const matchesStatus = statusFilter === 'all' || officer.status === statusFilter;
     
@@ -73,24 +72,7 @@ export const Officers: React.FC = () => {
         return;
       }
 
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      const newOfficer: Officer = {
-        id: Date.now().toString(),
-        name: formData.name,
-        mobile: formData.mobile,
-        telegram_id: formData.telegram_id || `@${formData.name.toLowerCase().replace(/\s+/g, '')}`,
-        status: 'Active',
-        registered_on: new Date().toISOString().split('T')[0],
-        last_active: 'Never',
-        credits_remaining: formData.credits_remaining,
-        total_credits: formData.total_credits,
-        total_queries: 0,
-        avatar: `https://images.pexels.com/photos/${Math.floor(Math.random() * 1000000)}/pexels-photo-${Math.floor(Math.random() * 1000000)}.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=2`
-      };
-
-      setOfficers(prev => [...prev, newOfficer]);
+      await createOfficer(formData);
       toast.success('Officer added successfully!');
       setShowAddModal(false);
       setFormData({
@@ -104,8 +86,8 @@ export const Officers: React.FC = () => {
         credits_remaining: 50,
         total_credits: 50
       });
-    } catch (error) {
-      toast.error('Failed to add officer');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to add officer');
     } finally {
       setIsSubmitting(false);
     }
@@ -116,7 +98,7 @@ export const Officers: React.FC = () => {
       const dataToExport = filteredOfficers.map(officer => ({
         Name: officer.name,
         Mobile: officer.mobile,
-        'Telegram ID': officer.telegram_id,
+        'Telegram ID': officer.telegram_id || '',
         Status: officer.status,
         'Registered On': officer.registered_on,
         'Last Active': officer.last_active,
@@ -150,48 +132,6 @@ export const Officers: React.FC = () => {
         a.download = `officers_export_${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         window.URL.revokeObjectURL(url);
-      } else if (format === 'pdf') {
-        // For PDF, we'll create a simple HTML table and print it
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-          const htmlContent = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <title>Officers Export</title>
-              <style>
-                body { font-family: Arial, sans-serif; margin: 20px; }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                th { background-color: #f2f2f2; font-weight: bold; }
-                .header { text-align: center; margin-bottom: 20px; }
-                .export-date { text-align: right; font-size: 12px; color: #666; }
-              </style>
-            </head>
-            <body>
-              <div class="header">
-                <h1>PickMe Intelligence - Officers Report</h1>
-                <div class="export-date">Generated on: ${new Date().toLocaleString()}</div>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    ${Object.keys(dataToExport[0]).map(header => `<th>${header}</th>`).join('')}
-                  </tr>
-                </thead>
-                <tbody>
-                  ${dataToExport.map(row => 
-                    `<tr>${Object.values(row).map(value => `<td>${value}</td>`).join('')}</tr>`
-                  ).join('')}
-                </tbody>
-              </table>
-            </body>
-            </html>
-          `;
-          printWindow.document.write(htmlContent);
-          printWindow.document.close();
-          printWindow.print();
-        }
       }
 
       toast.success(`Officers exported as ${format.toUpperCase()}`);
@@ -201,20 +141,24 @@ export const Officers: React.FC = () => {
     }
   };
 
-  const handleStatusToggle = (officerId: string, currentStatus: string) => {
-    const newStatus = currentStatus === 'Active' ? 'Suspended' : 'Active';
-    setOfficers(prev => prev.map(officer => 
-      officer.id === officerId 
-        ? { ...officer, status: newStatus as 'Active' | 'Suspended' }
-        : officer
-    ));
-    toast.success(`Officer ${newStatus.toLowerCase()}`);
+  const handleStatusToggle = async (officerId: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'Active' ? 'Suspended' : 'Active';
+      await updateOfficerStatus(officerId, newStatus);
+      toast.success(`Officer ${newStatus.toLowerCase()}`);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update officer status');
+    }
   };
 
-  const handleDeleteOfficer = (officerId: string, officerName: string) => {
+  const handleDeleteOfficer = async (officerId: string, officerName: string) => {
     if (window.confirm(`Are you sure you want to delete ${officerName}? This action cannot be undone.`)) {
-      setOfficers(prev => prev.filter(officer => officer.id !== officerId));
-      toast.success('Officer deleted successfully');
+      try {
+        await deleteOfficer(officerId);
+        toast.success('Officer deleted successfully');
+      } catch (error: any) {
+        toast.error(error.message || 'Failed to delete officer');
+      }
     }
   };
 
@@ -374,17 +318,15 @@ export const Officers: React.FC = () => {
           }`}>
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center space-x-3">
-                <img
-                  src={officer.avatar}
-                  alt={officer.name}
-                  className="w-12 h-12 rounded-full border-2 border-cyber-teal/30"
-                />
+                <div className="w-12 h-12 bg-cyber-gradient rounded-full flex items-center justify-center">
+                  <User className="w-6 h-6 text-white" />
+                </div>
                 <div>
                   <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                     {officer.name}
                   </h3>
                   <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    {officer.telegram_id}
+                    {officer.telegram_id || '@' + officer.name.toLowerCase().replace(/\s+/g, '')}
                   </p>
                 </div>
               </div>
@@ -822,25 +764,6 @@ export const Officers: React.FC = () => {
                       <p className="font-medium">JSON Format</p>
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                         Structured data format for developers
-                      </p>
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => handleExport('pdf')}
-                  className={`w-full p-4 rounded-lg border transition-all duration-200 text-left ${
-                    isDark 
-                      ? 'bg-crisp-black border-cyber-teal/20 hover:border-cyber-teal/40 text-white' 
-                      : 'bg-gray-50 border-gray-200 hover:border-cyber-teal/40 text-gray-900'
-                  }`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <Download className="w-5 h-5 text-neon-magenta" />
-                    <div>
-                      <p className="font-medium">PDF Report</p>
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        Printable report format
                       </p>
                     </div>
                   </div>

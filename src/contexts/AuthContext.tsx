@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { authAPI } from '../services/api';
 
 interface User {
   id: string;
@@ -33,19 +34,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored auth token
+    // Check for stored auth token and verify it
     const token = localStorage.getItem('auth_token');
     if (token) {
-      // Simulate user verification
-      setTimeout(() => {
-        setUser({
-          id: '1',
-          email: 'admin@pickme.intel',
-          name: 'Admin User',
-          role: 'admin'
+      authAPI.verifyToken(token)
+        .then(response => {
+          setUser(response.user);
+        })
+        .catch(() => {
+          // Token is invalid, remove it
+          localStorage.removeItem('auth_token');
+        })
+        .finally(() => {
+          setIsLoading(false);
         });
-        setIsLoading(false);
-      }, 1000);
     } else {
       setIsLoading(false);
     }
@@ -54,24 +56,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    if (email === 'admin@pickme.intel' && password === 'admin123') {
-      const mockUser: User = {
-        id: '1',
-        email: 'admin@pickme.intel',
-        name: 'Admin User',
-        role: 'admin'
-      };
+    try {
+      const response = await authAPI.login({ email, password });
       
-      setUser(mockUser);
-      localStorage.setItem('auth_token', 'mock-jwt-token');
-    } else {
-      throw new Error('Invalid credentials');
+      setUser(response.user);
+      localStorage.setItem('auth_token', response.token);
+    } catch (error) {
+      throw error;
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
 
   const logout = () => {

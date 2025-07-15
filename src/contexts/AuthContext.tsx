@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { signInAdmin, signOutAdmin, supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 interface User {
@@ -29,74 +30,97 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-// Mock user database
-const mockUsers = [
-  {
-    id: '1',
-    email: 'admin@pickme.intel',
-    password: 'admin123',
-    name: 'Admin User',
-    role: 'admin' as const
-  },
-  {
-    id: '2',
-    email: 'moderator@pickme.intel',
-    password: 'mod123',
-    name: 'Moderator User',
-    role: 'moderator' as const
-  }
-];
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored auth data
-    const storedUser = localStorage.getItem('auth_user');
-    if (storedUser) {
-      try {
-        const userData = JSON.parse(storedUser);
-        setUser(userData);
-      } catch (error) {
-        localStorage.removeItem('auth_user');
+    // Check for existing Supabase session
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        // Get admin user data
+        const { data: adminUser } = await supabase
+          .from('admin_users')
+          .select('*')
+          .eq('email', session.user.email)
+          .single();
+
+        if (adminUser) {
+          setUser({
+            id: adminUser.id,
+            email: adminUser.email,
+            name: adminUser.name,
+            role: adminUser.role
+          });
+        }
       }
-    }
-    setIsLoading(false);
+      
+      setIsLoading(false);
+    };
+
+    checkSession();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const { data: adminUser } = await supabase
+          .from('admin_users')
+          .select('*')
+          .eq('email', session.user.email)
+          .single();
+
+        if (adminUser) {
+          setUser({
+            id: adminUser.id,
+            email: adminUser.email,
+            name: adminUser.name,
+            role: adminUser.role
+          });
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Find user in mock database
-    const foundUser = mockUsers.find(u => u.email === email && u.password === password);
-    
-    if (foundUser) {
-      const userData: User = {
-        id: foundUser.id,
-        email: foundUser.email,
-        name: foundUser.name,
-        role: foundUser.role
-      };
+    try {
+      const { user: authUser, adminUser } = await signInAdmin(email, password);
       
-      setUser(userData);
-      localStorage.setItem('auth_user', JSON.stringify(userData));
-      toast.success(`Welcome back, ${userData.name}!`);
-    } else {
-      toast.error('Invalid email or password');
-      throw new Error('Invalid credentials');
+      if (authUser && adminUser) {
+        const userData: User = {
+          id: adminUser.id,
+          email: adminUser.email,
+          name: adminUser.name,
+          role: adminUser.role
+        };
+        
+        setUser(userData);
+        toast.success(`Welcome back, ${userData.name}!`);
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Login failed');
+      throw error;
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('auth_user');
-    toast.success('Logged out successfully');
+  const logout = async () => {
+    try {
+      await signOutAdmin();
+      setUser(null);
+      toast.success('Logged out successfully');
+    } catch (error: any) {
+      toast.error('Logout failed');
+    }
   };
 
   return (

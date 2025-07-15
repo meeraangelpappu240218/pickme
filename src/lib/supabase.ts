@@ -9,6 +9,67 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Authentication helper for admin users
+export const signInAdmin = async (email: string, password: string) => {
+  // First, check if user exists in admin_users table
+  const { data: adminUser, error: adminError } = await supabase
+    .from('admin_users')
+    .select('*')
+    .eq('email', email)
+    .single();
+
+  if (adminError || !adminUser) {
+    throw new Error('Invalid admin credentials');
+  }
+
+  // For demo purposes, we'll use a simple password check
+  // In production, you should use proper password hashing
+  const validPasswords = {
+    'admin@pickme.intel': 'admin123',
+    'moderator@pickme.intel': 'mod123'
+  };
+
+  if (validPasswords[email as keyof typeof validPasswords] !== password) {
+    throw new Error('Invalid password');
+  }
+
+  // Create a session by signing in with Supabase Auth
+  // We'll use the email as both email and password for Supabase Auth
+  // This is a workaround since we're using custom admin authentication
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email,
+    password: email // Using email as password for Supabase Auth
+  });
+
+  if (error) {
+    // If user doesn't exist in Supabase Auth, create them
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: email,
+      password: email,
+      options: {
+        data: {
+          role: adminUser.role,
+          name: adminUser.name
+        }
+      }
+    });
+
+    if (signUpError) {
+      throw new Error('Authentication failed');
+    }
+
+    return { user: signUpData.user, adminUser };
+  }
+
+  return { user: data.user, adminUser };
+};
+
+export const signOutAdmin = async () => {
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    throw new Error('Sign out failed');
+  }
+};
 // Database types
 export interface Officer {
   id: string;

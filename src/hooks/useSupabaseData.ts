@@ -117,12 +117,20 @@ export const useSupabaseData = () => {
   // CRUD Operations for Officers
   const addOfficer = async (officerData: Omit<Officer, 'id' | 'created_at' | 'updated_at' | 'registered_on' | 'last_active' | 'total_queries'>) => {
     try {
+      // Ensure we have a valid session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
       const { data, error } = await supabase
         .from('officers')
         .insert([{
           ...officerData,
           password_hash: '$2b$10$defaulthash', // In real app, hash the password
-          total_queries: 0
+          total_queries: 0,
+          registered_on: new Date().toISOString(),
+          last_active: new Date().toISOString()
         }])
         .select()
         .single();
@@ -133,7 +141,8 @@ export const useSupabaseData = () => {
       toast.success('Officer added successfully!');
       return data;
     } catch (error: any) {
-      toast.error(`Failed to add officer: ${error.message}`);
+      console.error('Add officer error:', error);
+      toast.error(`Failed to add officer: ${error.message || 'Unknown error'}`);
       throw error;
     }
   };
